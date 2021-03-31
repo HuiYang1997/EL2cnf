@@ -1,8 +1,8 @@
 def split(axiom, type='concepts'):
     axiom_s = axiom.split('<')
     if type == 'concepts':
-        #a1 = axiom_s[1]
-        #return a1.split('>', 1)[0], [a.split('>', 1)[0] for a in axiom_s[2:]]
+        # a1 = axiom_s[1]
+        # return a1.split('>', 1)[0], [a.split('>', 1)[0] for a in axiom_s[2:]]
         return [a.split('>', 1)[0] for a in axiom_s[1:]]
     else:
         a1 = axiom_s[-1]
@@ -22,12 +22,9 @@ class saturate_process_pools:
         axiom_s = axiom.split('(')
         if len(axiom_s) == 2:
             assert len(rest) == 1
-            if first in self.H2A:
-                self.H2A[first].add(rest[0])
-            else:
-                self.H2A[first] = set(rest[0])
-
-            result = [('H2A', first, rest[0])]
+            clause = ('H2A', first, rest[0])
+            self.add_clause(clause)
+            result = [clause]
             return result
 
         result = []
@@ -36,40 +33,21 @@ class saturate_process_pools:
         if literal[0] == 's':
             assert len(rest) == 2
             r, K = rest[0], (rest[1],)
-            if K in self.K2rH:
-                if r in self.K2rH[K]:
-                    self.K2rH[K][r].add(first)
-                else:
-                    self.K2rH[K][r] = {first}
-            else:
-                self.K2rH[K] = {r: {first}}
-
-            if first in self.H2rK:
-                if r in self.H2rK[first]:
-                    self.H2rK[first][r].add(K)
-                else:
-                    self.H2rK[first][r] = {K}
-            else:
-                self.H2rK[first] = {r: {K}}
-
-            result.append(('H2rK', first, r, K))
+            clause = ('H2rK', first, r, K)
+            self.add_clause(clause)
+            result.append(clause)
 
         elif literal[1] == 'n':
-            if first in self.H2A:
-                self.H2A[first].update(rest)
-            else:
-                self.H2A[first] = set(rest)
-
-            result += [('H2A', first, rest_term) for rest_term in rest]
+            for rest_term in rest:
+                clause = ('H2A', first, rest_term)
+                self.add_clause(clause)
+                result.append(clause)
 
             if axiom[1] == 'e':
                 rest_tuple = tuple(sorted(rest))
-                if rest_tuple in self.H2A:
-                    self.H2A[rest_tuple].add(first)
-                else:
-                    self.H2A[rest_tuple] = {first}
-                result.append(('H2A', rest_tuple, first))
-
+                clause = ('H2A', rest_tuple, first)
+                self.add_clause(clause)
+                result.append(clause)
         return result
 
     # add clause, return True if it is new clause, False if not. if type !='add', only return True, False, do not add.
