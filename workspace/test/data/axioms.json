@@ -1,0 +1,1 @@
+{"(implies <A> (some <r> <B>))": 0, "(implies <B> (and <B1> <B2>))": 1, "(implies <A> <B4>)": 2, "(implies <B2> <B3>)": 3, "(equivalent <C> (and <B1> <B2> <B3>))": 4, "(implies <B> (all<r> <B1>))": 5, "(implies <B1> (some <s> <B2>))": 6, "(equivalent <D> (some <t> <B2>))": 7, "(equivalent <B3> (some <r> <B2>))": 8}
