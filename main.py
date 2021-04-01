@@ -5,6 +5,7 @@ from random import sample, randint
 from copy import deepcopy
 from pool import saturate_ini_pools, saturate_pools, saturate_process_pools
 from itertools import product
+import os
 
 
 def cut_axiom(one_axiom):
@@ -82,19 +83,43 @@ class Ontology:
         self.axioms, self.axioms_RI, self.axioms_RC, self.concepts, self.relations = {}, {}, {}, set([]), set([])
         # RI for role inclusion, RC for role chain
         self.axioms_normalized, self.mapback, self.normalize_dic = {}, {}, {}
-        self.num_axiom, self.num_axiom_normalized, self.new_normalize_concepts, self.current_axiom = 0, 0, 0, 0
+
+        self.num_axiom_normalized, self.new_normalize_concepts, self.current_axiom = 0, 0, 0
+        self.num_axiom, self.num_no_alc_axiom = 0, 0
+
+        self.valid_first_literals = {'E', 'S', 'T'}  # Equivalence() or Sub...() or Transverse
+        self.filter_box = ['ObjectUnionOf', 'ObjectComplementOf', 'ObjectOneOf',
+                           'ObjectHasValue', 'ObjectHasSelf', 'ObjectMinCardinality', 'ObjectMaxCardinality',
+                           'ObjectExactCardinality', 'DataSomeValuesFrom', 'DataAllValuesFrom', 'DataHasValue',
+                           'DataMinCardinality', 'DataMaxCardinality', 'DataExactCardinality',
+                           'ClassAxiom', 'ObjectPropertyAxiom', 'DataPropertyAxiom', 'DatatypeDefinition', 'HasKey',
+                           'Assertion',
+                           'Annotation', 'Datatype', 'DataIntersectionOf', 'DataUnionOf', 'DataComplementOf',
+                           'DataOneOf',
+                           'DatatypeRestriction', 'DisjointClasses', 'DisjointUnion',
+                           'DisjointObjectProperties',
+                           'InverseObjectProperties', 'ObjectPropertyDomain', 'FunctionalObjectProperty',
+                           'InverseFunctionalObjectProperty', 'ReflexiveObjectProperty', 'IrreflexiveObjectProperty',
+                           'SymmetricObjectProperty', 'AsymmetricObjectProperty', 'SubDataPropertyOf',
+                           'EquivalentDataProperties', 'DisjointDataProperties', 'DataPropertyDomain',
+                           'DataPropertyRange', 'FunctionalDataProperty', 'SameIndividual', 'DifferentIndividuals',
+                           'ClassAssertion',
+                           'ObjectPropertyAssertion', 'NegativeObjectPropertyAssertion', 'DataPropertyAssertion',
+                           'NegativeDataPropertyAssertion']  # 'TransitiveObjectProperty','ObjectAllValuesFrom','ObjectPropertyRange','Declaration','EquivalentObjectProperties',
+
         print('loading ontology:')
-        #with open(f'workspace/{name_ontology}/{name_ontology}.owl', 'r') as f:
+        # with open(f'workspace/{name_ontology}/{name_ontology}.owl', 'r') as f:
         with open(f'Ontologies-Less-Than-10000/{name_ontology}.owl', 'r') as f:
             data = f.readlines()
             for line in tqdm(data):
                 self.renew(line)
         if not normalized:
             self.normalize()
+        print('num_alc_axioms, non_alc_axioms:', self.num_axiom, self.num_no_alc_axiom)
         self.save(name_ontology)
 
     def save(self, name_ontology):
-        #path = f'workspace/{name_ontology}/data/'
+        # path = f'workspace/{name_ontology}/data/'
         path = f'result-Ontologies-Less-Than-10000/{name_ontology}/data/'
         mkdir(path)
         jsobj1 = json.dumps(self.axioms_RI)
@@ -124,29 +149,50 @@ class Ontology:
         return
 
     def renew(self, line):
+        if line[:19] == 'ObjectPropertyRange':
+            axiom_new = 'SubClassof( <owl:Thing> ObjectAllValuesFrom(' + line[20:] + ')'
+            # print(line, axiom_new)
+            self.axioms[axiom_new] = self.num_axiom
+            self.num_axiom += 1
+            return
+
+        for a in self.filter_box:
+            if a in line:
+                # print(line)
+                self.num_no_alc_axiom += 1
+                return
+
         if line[0] == 'D':  # Declaration()
-            if line[12] == 'C':  # Class
+            if line[11:13] == '(C':  # Class
                 self.concepts.add(line.split('<', 1)[1][:-3])
-            elif line[12] == 'O':  # Object
+            elif line[11:13] == '(O':  # Object
                 self.relations.add(line.split('<', 1)[1][:-3])
-        elif line[0] == 'E' or line[0] == 'S':  # Equivalence() or Sub...()
-            if 'Property' in line:
+
+        elif line[0] in self.valid_first_literals:
+            if 'Propert' in line:  # to include two cases "Property" or "Properties"
                 if 'Chain' in line:
+                    assert line[0] != 'E'
                     self.axioms_RC[line[:-1]] = self.num_axiom
                 else:
-                    self.axioms_RI[line[:-1]] = self.num_axiom
-                '''
-                tuple_roles = formal_form(line)
-                if 'Chain' in line:
-                    self.axioms_RC[tuple_roles] = self.num_axiom
-                else:
-                    self.axioms_RI[tuple_roles] = self.num_axiom
-                '''
+                    if line[:16] == 'TransitiveObject':
+                        role_name = line.split('<', 1)[1].split('>', 1)[0]
+                        trans_axiom = f'SubObjectPropertyOf(ObjectPropertyChain(<{role_name}> <{role_name}>) <{role_name}>)'
+                        self.axioms_RC[trans_axiom] = self.num_axiom
+                    elif line[:26] == 'EquivalentObjectProperties':
+                        r_list = [a.split('>')[0] for a in line.split('<')[1:]]
+                        axiom_1 = f'SubObjectPropertyOf<{r_list[0]}> <{r_list[1]}>)'
+                        axiom_2 = f'SubObjectPropertyOf(<{r_list[1]}> <{r_list[0]}>)'
+                        # print(axiom_1, axiom_2)
+                        self.axioms_RI[axiom_1] = self.num_axiom
+                        self.axioms_RI[axiom_2] = self.num_axiom
+                    else:
+                        self.axioms_RI[line[:-1]] = self.num_axiom
             else:
                 line_other_form = line.replace('SubClassOf(', '(implies ').replace('EquivalentClasses(',
                                                                                    '(equivalent ').replace(
                     'ObjectSomeValuesFrom(', '(some ').replace('ObjectIntersectionOf(', '(and ').replace(
-                    'ObjectAllValuesFrom(', '(all').replace('owl:Thing', '<owl:Thing>').replace('owl:Nothing', '<owl:Nothing>')
+                    'ObjectAllValuesFrom(', '(all').replace('owl:Thing', '<owl:Thing>').replace('owl:Nothing',
+                                                                                                '<owl:Nothing>')
                 self.axioms[line_other_form[:-1]] = self.num_axiom
             self.num_axiom += 1
 
@@ -198,13 +244,13 @@ class Ontology:
         else:
             one_axiom_form = formal_form(part_axiom)
             if one_axiom_form not in self.normalize_dic.keys():
-                new_normalized_concept = f'#N{self.new_normalize_concepts}'
+                new_normalized_concept = f'<#N{self.new_normalize_concepts}>'
                 self.new_normalize_concepts += 1
                 self.concepts.add(new_normalized_concept)
                 self.normalize_dic[one_axiom_form] = new_normalized_concept
 
                 self.axioms_normalized[
-                    f'(equivalent <#N{self.new_normalize_concepts}> (' + part_axiom + '))'] = self.num_axiom_normalized
+                    f'(equivalent {new_normalized_concept} ({part_axiom}))'] = self.num_axiom_normalized
                 self.num_axiom_normalized += 1
 
             return self.normalize_dic[one_axiom_form]
@@ -215,7 +261,8 @@ class Ontology:
             self.axioms_normalized[self.normalize_one_term_begin(axiom)] = self.num_axiom_normalized
             self.mapback[self.num_axiom_normalized] = self.axioms[axiom]
             self.num_axiom_normalized += 1
-        print(f'length of ontology, normalization ontology: {len(self.axioms_normalized)}, {self.num_axiom_normalized}')
+        print(
+            f'length of ontology, normalization ontology(exclude role chain or role inclusion): {len(self.axioms)}, {self.num_axiom_normalized}')
 
     def len(self):
         return len(self.axioms_normalized) + len(self.axioms_RC) + len(self.axioms_RI)
@@ -238,9 +285,10 @@ class saturate:
         self.clause2ind = {}
         # self.id_axioms2ind = {}
         self.saturate_progress = {}
-        #self.savepath = f'workspace/{name_ontology}/data/'
+        # self.savepath = f'workspace/{name_ontology}/data/'
         self.savepath = f'result-Ontologies-Less-Than-10000/{name_ontology}/data/'
         self.initial()
+        self.owlThing2rB = {}
 
     def initial(self):
         for axiom in self.ontology.axioms_normalized:
@@ -252,7 +300,6 @@ class saturate:
             for clause in clauses1:
                 self.add_new_clause(clause, type='fix')
             self.clause2ind[('original', axiom)] = self.ind
-            print(self.ind)
             self.ind += 1
 
         for axiom in self.ontology.axioms_RC:
@@ -266,6 +313,8 @@ class saturate:
             self.clause2ind[clause] = self.ind
             self.clause2ind[('original', axiom)] = self.ind
             self.ind += 1
+
+        self.owlThing2rB = self.ontology_pool.B2rA.get('owl:Thing')
 
     def record_saturate_process(self, pre, con):
         pre = list(pre)
@@ -289,7 +338,7 @@ class saturate:
             for B in B_list:
                 clause = ('H2A', H, B)
                 self.add_new_clause(clause)
-                pre = {ind_HA, self.clause2ind[clause]}
+                pre = {ind_HA, self.clause2ind[('A2B', A, B)]}
                 self.record_saturate_process(pre, self.clause2ind[clause])
 
         # (H, A),(H, A1),...,(H,An)    ({A,...Ai...},{B}) --> (H, B). (H, Ai) in processed_pool
@@ -378,6 +427,16 @@ class saturate:
                         else:
                             pre = {ind_HrK, self.clause2ind[('H2A', K, A)], self.clause2ind[('B2rA', A, r, B)]}
                         self.record_saturate_process(pre, self.clause2ind[clause])
+
+        # (H, r, K), (K, top)    (r top, B) --> (H, B)
+        if self.owlThing2rB:
+            B_list = self.owlThing2rB.get(r)
+            if B_list:
+                for B in B_list:
+                    clause = ('H2A', H, B)
+                    self.add_new_clause(clause)
+                    pre = {ind_HrK, self.clause2ind[('B2rA', 'owl:Thing', B)]}
+                    self.record_saturate_process(pre, self.clause2ind[clause])
 
         # or (H, r, K), (H, A)    (A, \forall r.B) --> (H, r, K\cap B)
         A_new_list = self.processed_pool.H2A.get(H)
@@ -489,8 +548,6 @@ class saturate:
                         clause_axiom_form = clause2axiom(clause)
                         if clause_axiom_form:
                             f.write(f"{id_clause}-{clause_axiom_form}\n")
-                    #else:
-                        #print(clause, id_clause, self.ontology_len)
         return
 
 
@@ -524,10 +581,22 @@ def test(a):
         print(A.K2rH, A.H2A)
 
 
-def test_saturate():
-    S = saturate('ore_ont_1967')
-    print(S.ontology_pool.A2rB, S.ontology_pool.r2ri)
-    S.run()
+def test_saturate(a):
+    if a  == 0:
+        dirs = os.listdir('Ontologies-Less-Than-10000')
+        for i, file in enumerate(dirs):
+            print(f'\n\n{i}/{len(dirs)}th: {file}_________________________________')
+            S = saturate(file[:-4])
+            print(S.ontology_pool.ri2r)
+            # print(S.ontology_pool.B2rA)
+            S.run()
+    else:
+        S = saturate('ore_ont_12141')
+        print(S.ontology_pool.ri2r)
+        # print(S.ontology_pool.B2rA)
+        S.run()
 
 
-test_saturate()
+
+
+test_saturate(0)

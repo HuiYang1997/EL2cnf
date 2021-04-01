@@ -1,9 +1,9 @@
 def split(axiom, type='concepts'):
     axiom_s = axiom.split('<')
     if type == 'concepts':
-        # a1 = axiom_s[1]
-        # return a1.split('>', 1)[0], [a.split('>', 1)[0] for a in axiom_s[2:]]
-        return [a.split('>', 1)[0] for a in axiom_s[1:]]
+        a1 = axiom_s[1]
+        return a1.split('>', 1)[0], [a.split('>', 1)[0] for a in axiom_s[2:]]
+        #return [a.split('>', 1)[0] for a in axiom_s[1:]]
     else:
         a1 = axiom_s[-1]
         return [a.split('>', 1)[0] for a in axiom_s[1:-1]], a1.split('>', 1)[0]
@@ -125,12 +125,9 @@ class saturate_ini_pools:
         # (implies/equi A B)
         if len(axiom_s) == 2:
             assert len(rest) == 1
-            if first in self.A2B:
-                self.A2B[first].update(rest)
-            else:
-                self.A2B[first] = set(rest)
-
-            result = [('A2B', first, rest[0])]
+            clause = ('A2B', first, rest[0])
+            self.add_clause(clause)
+            result = [clause]
             return result
 
         result = []
@@ -138,53 +135,39 @@ class saturate_ini_pools:
 
         if literal[0] == 's':  # (... (some...))
             assert len(rest) == 2
-            if first in self.A2rB:
-                if rest[0] in self.A2rB[first]:
-                    self.A2rB[first][rest[0]].add(rest[1])
-                else:
-                    self.A2rB[first][rest[0]] = {rest[1]}
+            if axiom.split(' ')[1][0] == '(':
+                #(impies (some...) ...)
+                clause = ('B2rA',  rest[0], first, rest[1],)
             else:
-                self.A2rB[first] = {rest[0]: {rest[1]}}
-            result.append(('A2rB', first, rest[0], rest[1]))
+                #(impies ... (some...)) or (equivalence ... (some...))
+                if axiom[1] == 'e':
+                    assert axiom.split(' ')[1][1] != '('
+                    clause = ('B2rA', rest[1], rest[0], first)
+                    self.add_clause(clause)
+                    result.append(clause)
 
-            if axiom[1] == 'e':
-                if rest[1] in self.B2rA:
-                    if rest[0] in self.B2rA[rest[1]]:
-                        self.B2rA[rest[1]][rest[0]].add(first)
-                    else:
-                        self.B2rA[rest[1]][rest[0]] = {first}
-                else:
-                    self.B2rA[rest[1]] = {rest[0]: {first}}
-                result.append(('B2rA', rest[1], rest[0], first))
+                clause = ('A2rB', first, rest[0], rest[1])
+            self.add_clause(clause)
+            result.append(clause)
 
         elif literal[1] == 'l':  # (... (all...))
-            if first in self.A2rB_universal:
-                if rest[0] in self.A2rB_universal[first]:
-                    self.A2rB_universal[first][rest[0]].add(rest[1])
-                else:
-                    self.A2rB_universal[first][rest[0]] = {rest[1]}
-            else:
-                self.A2rB_universal[first] = {rest[0]: {rest[1]}}
-            result.append(('A2rB_universal', first, rest[0], rest[1]))
-
-            assert axiom[1] != 'e'
+            clause = ('A2rB_universal', first, rest[0], rest[1])
+            self.add_clause(clause)
+            result.append(clause)
+            #print(axiom)
+            #assert axiom[1] != 'e' # it is impossible it has form (implies... (all...))
 
         else:  # (... (and...))
-            if first in self.A2B:
-                self.A2B[first].update(rest)
-            else:
-                self.A2B[first] = set(rest)
-
-            result += [('A2B', first, rest_term) for rest_term in rest]
+            for rest_term in rest:
+                clause = ('A2B', first, rest_term)
+                self.add_clause(clause)
+                result.append(clause)
 
             if axiom[1] == 'e':
                 rest_tuple = tuple(sorted(rest))
-                if rest_tuple in self.Ai2B:
-                    self.Ai2B[rest_tuple].add(first)
-                else:
-                    self.Ai2B[rest_tuple] = {first}
-                # clause = ['Ai2B']+list(rest_tuple)+[first]
-                result.append(('Ai2B', rest_tuple, first))
+                clause = ('Ai2B', rest_tuple , first)
+                self.add_clause(clause)
+                result.append(clause)
 
                 for A in rest_tuple:
                     if A in self.A2Ai:
@@ -215,8 +198,8 @@ class saturate_ini_pools:
     # add clause, return True if it is new clause, False if not. if type !='add', only return True, False, do not add.
     def add_clause(self, clause, type='add'):
         if clause[0] == 'A2rB':
+            # (implies A (r,B))
             A, r, B = clause[1], clause[2], clause[3]
-            # add (H,r,K)
             if A in self.A2rB:
                 if r in self.A2rB[A] and B not in self.A2rB[A][r]:
                     if type == 'add':
@@ -233,8 +216,8 @@ class saturate_ini_pools:
             return False
 
         elif clause[0] == 'B2rA':
+            # add (implies (some r B), A)
             B, r, A = clause[1], clause[2], clause[3]
-            # add (H,r,K)
             if B in self.B2rA:
                 if r in self.B2rA[B] and A not in self.B2rA[B][r]:
                     if type == 'add':
@@ -259,7 +242,7 @@ class saturate_ini_pools:
                 return True
             elif A not in self.A2B:
                 if type == 'add':
-                    self.A2rB[A] = {B}
+                    self.A2B[A] = {B}
                 return True
             return False
 
@@ -283,23 +266,24 @@ class saturate_ini_pools:
 
         elif clause[0] == 'Ai2B':
             Ai, A = clause[1], clause[2]
-            if Ai in self.Ai2B and A not in self.Ai2B[A]:
+            if Ai in self.Ai2B and A not in self.Ai2B[Ai]:
                 if type == 'add':
                     self.Ai2B[Ai].add(A)
                     for A in Ai:
                         if A in self.A2Ai:
-                            self.A2Ai.add(Ai)
+                            self.A2Ai[A].add(Ai)
                         else:
-                            self.A2Ai = {Ai}
+                            self.A2Ai[A] = {Ai}
+
                 return True
             elif Ai not in self.Ai2B:
                 if type == 'add':
                     self.Ai2B[Ai] = {A}
                     for A in Ai:
                         if A in self.A2Ai:
-                            self.A2Ai.add(Ai)
+                            self.A2Ai[A].add(Ai)
                         else:
-                            self.A2Ai = {Ai}
+                            self.A2Ai[A] = {Ai}
                 return True
             return False
 
@@ -314,6 +298,7 @@ class saturate_pools:
         first = (first_item,)
         axiom_s = axiom.split('(')
         if len(axiom_s) == 2:
+            #print(axiom)
             assert len(rest) == 1
             if first in self.H2A:
                 self.H2A[first].update(rest)
@@ -327,6 +312,7 @@ class saturate_pools:
         literal = axiom.split('(')[2]
 
         if literal[0] == 's':
+            #print(rest, axiom)
             assert len(rest) == 2
             r, K = rest[0], (rest[1],)
             if first in self.H2rK:
