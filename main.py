@@ -6,6 +6,7 @@ from copy import deepcopy
 from pool import saturate_ini_pools, saturate_pools, saturate_process_pools
 from itertools import product
 import os
+from time import time
 
 
 def cut_axiom(one_axiom):
@@ -103,9 +104,8 @@ class Ontology:
                            'SymmetricObjectProperty', 'AsymmetricObjectProperty', 'SubDataPropertyOf',
                            'EquivalentDataProperties', 'DisjointDataProperties', 'DataPropertyDomain',
                            'DataPropertyRange', 'FunctionalDataProperty', 'SameIndividual', 'DifferentIndividuals',
-                           'ClassAssertion',
                            'ObjectPropertyAssertion', 'NegativeObjectPropertyAssertion', 'DataPropertyAssertion',
-                           'NegativeDataPropertyAssertion']  # 'TransitiveObjectProperty','ObjectAllValuesFrom','ObjectPropertyRange','Declaration','EquivalentObjectProperties',
+                           'NegativeDataPropertyAssertion']  # 'TransitiveObjectProperty','ObjectAllValuesFrom','ObjectPropertyRange','Declaration','EquivalentObjectProperties',  'ClassAssertion',
 
         print('loading ontology:')
         # with open(f'workspace/{name_ontology}/{name_ontology}.owl', 'r') as f:
@@ -149,6 +149,8 @@ class Ontology:
         return
 
     def renew(self, line):
+        if '(' not in line or '<' not in line or 'Assertion(' in line:
+            return
         if line[:19] == 'ObjectPropertyRange':
             axiom_new = 'SubClassof( <owl:Thing> ObjectAllValuesFrom(' + line[20:] + ')'
             # print(line, axiom_new)
@@ -169,6 +171,9 @@ class Ontology:
                 self.relations.add(line.split('<', 1)[1][:-3])
 
         elif line[0] in self.valid_first_literals:
+
+            # !!!!!!!!to do: transform axiom (implies (all r B) A) using negation
+
             if 'Propert' in line:  # to include two cases "Property" or "Properties"
                 if 'Chain' in line:
                     assert line[0] != 'E'
@@ -284,7 +289,7 @@ class saturate:
         self.ontology_len = self.ontology.len()
         self.clause2ind = {}
         # self.id_axioms2ind = {}
-        self.saturate_progress = {}
+        self.saturate_progress, self.num_saturated = {}, 0
         # self.savepath = f'workspace/{name_ontology}/data/'
         self.savepath = f'result-Ontologies-Less-Than-10000/{name_ontology}/data/'
         self.initial()
@@ -322,6 +327,7 @@ class saturate:
             self.saturate_progress[con].append(pre)
         else:
             self.saturate_progress[con] = [pre]
+        self.num_saturated += 1
 
     def one_turn_H2A(self):
         if not self.initial_pool.H2A:
@@ -354,7 +360,8 @@ class saturate:
                     for B in self.ontology_pool.Ai2B[Ai_set]:
                         clause = ('H2A', H, B)
                         self.add_new_clause(clause)
-                        pre = {self.clause2ind[('H2A', H, Ai_new)] for Ai_new in Ai_set}
+                        pre = {self.clause2ind[('H2A', H, Ai_new)] for Ai_new in Ai_set if
+                               Ai_new != A and Ai_new not in H}
                         pre.add(self.clause2ind[('Ai2B', Ai_set, B)])
                         self.record_saturate_process(pre, self.clause2ind[clause])
 
@@ -521,6 +528,7 @@ class saturate:
                     if not f1:
                         break
         self.save()
+        return self.ontology.num_axiom, self.ontology.num_no_alc_axiom
 
     def add_new_clause(self, clause, type='non-fix'):
         if clause not in self.clause2ind:
@@ -582,21 +590,31 @@ def test(a):
 
 
 def test_saturate(a):
-    if a  == 0:
-        dirs = os.listdir('Ontologies-Less-Than-10000')
+    if a == 0:
+        start_time = time()
+        dic_ontology = 'Ontologies-Less-Than-10000'
+        dirs = os.listdir(dic_ontology)
+        f1 = open(f'record_{dic_ontology}.csv', 'w')
+        f1.write(f'name_ontology,num_axiom, num_non_alc_axiom,load_time(s),saturate_time(s), num_generated_clause\n')
         for i, file in enumerate(dirs):
             print(f'\n\n{i}/{len(dirs)}th: {file}_________________________________')
+            s_t = time()
             S = saturate(file[:-4])
+            load_time = time() - s_t
             print(S.ontology_pool.ri2r)
             # print(S.ontology_pool.B2rA)
-            S.run()
+            num_axiom, num_non_alc_axiom = S.run()
+            size_after_saturate = S.num_saturated
+            saturate_time = time() - s_t - load_time
+            f1.write(f'{file},{num_axiom}, {num_non_alc_axiom},{load_time},{saturate_time},{size_after_saturate}\n')
+        f1.close()
+        print('finished in', time() - start_time)
+
     else:
-        S = saturate('ore_ont_12141')
+        S = saturate('ore_ont_1016')
         print(S.ontology_pool.ri2r)
         # print(S.ontology_pool.B2rA)
         S.run()
-
-
 
 
 test_saturate(0)
