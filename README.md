@@ -1,3 +1,3 @@
-# ALC2cnf
+# EL2cnf
 
 rewrite the reasoning progress of ALC as clauses
